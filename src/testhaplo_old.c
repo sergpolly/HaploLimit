@@ -9,17 +9,6 @@
 #define BUFFER_SIZE 1024
 #define LABEL_SIZE 32
 
-
-
-// description of haplotypes: index and bounds ...
-typedef struct {
-    int index;
-    double lower;
-    double upper;
-} HBound;
-
-
-
 // description of the population ...
 typedef struct {
     // alleles stats ...
@@ -40,7 +29,8 @@ typedef struct {
     int *link_loci_indices;
     int *link_alleles_indices;
     //results ...
-    HBound *hbounds;
+    double *lower;
+    double *upper;
 } PopDes;
 
 
@@ -94,12 +84,6 @@ void print_haplotypes_and_bounds(PopDes *population, int print_labels, int print
 
 // print matrix of constraints  
 void print_constraints_matrix(SparseMat *matrix);
-
-// comparison function for HBound that is used in qsort ...
-int compare_hbounds(const void *, const void *);
-// void print_union(HBound);
-
-
 
 
 
@@ -202,7 +186,8 @@ int main(int argc, char **argv) {
     /////////////////////////////////////
     /////////////////////////////////////
     // allocate arrays for the haplotype frequency bounds ....
-    pop->hbounds = (HBound *)malloc(pop->haplotypes*sizeof(HBound));
+    pop->lower = (double *)malloc(pop->haplotypes*sizeof(double));
+    pop->upper = (double *)malloc(pop->haplotypes*sizeof(double));
 
     for (int which_hap = 0; which_hap < pop->haplotypes; which_hap++){
         // for each haplotype calculate its bounds ...
@@ -225,16 +210,9 @@ int main(int argc, char **argv) {
         glp_simplex(lp, &parm);
         double lower_bound = glp_get_obj_val(lp);
         // fill in the lower and upper arrays of the population structure ...
-        pop->hbounds[which_hap].index = which_hap;
-        pop->hbounds[which_hap].lower = lower_bound;
-        pop->hbounds[which_hap].upper = upper_bound;
+        pop->lower[which_hap] = lower_bound;
+        pop->upper[which_hap] = upper_bound;
     }
-
-
-// We'd need to determine most interesting haplotypes (haplotypes to scan) ourselves by sorting arrays jointly ...
-// then we'd need to update our linkage info, adding fixed constraint for haplotype under scanning, and perform simplex again and again ...
-    // so, after the initial simplex, sort haplotypes by the upper limit and ...
-    qsort(pop->hbounds, pop->haplotypes, sizeof(HBound), compare_hbounds);
 
 
 
@@ -826,8 +804,8 @@ void free_population(PopDes *population){
     free(population->link_loci_indices);
     free(population->link_alleles_indices);
     //results ...
-    free(population->hbounds);
-    // free(population->upper);
+    free(population->lower);
+    free(population->upper);
 }
 
 
@@ -843,7 +821,7 @@ void print_haplotypes_and_bounds(PopDes *population, int print_labels, int print
     // print every haplotype ...
     for (int h = 0; h < population->haplotypes; h++){
         if (print_bounds) {
-            printf("H%04d: %05d %.4lf %.4lf ",h+1,population->hbounds[h].index,population->hbounds[h].lower,population->hbounds[h].upper);
+            printf("H%04d: %.4lf %.4lf ",h+1,population->lower[h],population->upper[h]);
         } else {
             printf("H%04d: ",h+1);
         }
@@ -910,29 +888,6 @@ void print_constraints_matrix(SparseMat *matrix){
     }
     free(check_mat);
 }
-
-
-
-
-
-int compare_hbounds(const void *ha, const void *hb){
-    // inspired by http://www.anyexample.com/programming/c/qsort__sorting_array_of_strings__integers_and_structs.xml
-    const HBound *iha = (const HBound *)ha;
-    const HBound *ihb = (const HBound *)hb;
-    // descending, sorted by HBound.upper ...
-    return (int) 100000.0f*(ihb->upper - iha->upper);
-    // // ascending, sorted by HBound.upper ...
-    // return (int) 100000.0f*(iha->upper - ihb->upper);
-    // // dscending, sorted by HBound.lower ...
-    // return (int) 100000.0f*(ihb->lower - iha->lower);
-    // /////////////////////////////////////////////////
-    // /* integer comparison: returns negative if b > a 
-    // and positive if a > b */ 
-};
-
-
-
-
 
 
 

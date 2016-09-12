@@ -240,7 +240,7 @@ with open(filename,'w') as fp:
 	fp.write( pop_info_out + link_info_out )
 #
 # after the file is written, we can go ahead and launch haplotest program!!!
-output_lines = sub.check_output("./testhaplo %s"%filename,shell=True).strip().split('\n')
+output_lines = sub.check_output("./bin/testhaplo %s"%filename,shell=True).strip().split('\n')
 parsed_out_initial = parse_haplolimit_output(output_lines)
 intervals_initial = get_intervals(parsed_out_initial)
 
@@ -345,7 +345,7 @@ def plot_haplo_range(ax,fmin_arr,fmax_arr,fillcolor='red'):
 # 		fp.write( pop_info_out + link_info_out )
 # 	#
 # 	# after the file is wsritten, we can go ahead and launch haplotest program!!!
-# 	output_lines = sub.check_output("./testhaplo %s"%filename,shell=True).strip().split('\n')
+# 	output_lines = sub.check_output("./bin/testhaplo %s"%filename,shell=True).strip().split('\n')
 # 	parsed_out = parse_haplolimit_output(output_lines)
 # 	intervals = get_intervals(parsed_out)
 # 	ratios = get_interval_ratios(intervals,intervals_initial)
@@ -408,7 +408,7 @@ for scan_hap_idx in range(21):
 			fp.write( pop_info_out + link_info_out )
 		#
 		# after the file is written, we can go ahead and launch haplotest program!!!
-		output_lines = sub.check_output("./testhaplo %s"%filename,shell=True).strip().split('\n')
+		output_lines = sub.check_output("./bin/testhaplo %s"%filename,shell=True).strip().split('\n')
 		parsed_out = parse_haplolimit_output(output_lines)
 		intervals = get_intervals(parsed_out)
 		ratios = get_interval_ratios(intervals,intervals_initial)

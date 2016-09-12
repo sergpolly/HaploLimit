@@ -92,6 +92,9 @@ void free_sparse_matrix(SparseMat *matrix);
 // print all possible haplotypes using labels(optional) and display haplotype frequency limits(optional)
 void print_haplotypes_and_bounds(PopDes *population, int print_labels, int print_bounds);
 
+// simplex method for all haplos (both MIN and MAX) wrapped in a single function call 
+void run_simplex_all_haplos(PopDes *population, glp_prob *local_lp, glp_smcp *local_parm);
+
 // print matrix of constraints  
 void print_constraints_matrix(SparseMat *matrix);
 
@@ -109,6 +112,8 @@ int main(int argc, char **argv) {
     PopDes *pop;
     SparseMat *mat;
     glp_prob *lp;
+    HBound *hbounds_prescan; // we'd need that for scanning version of the program ...
+    // initialized later on ...
 
     pop = (PopDes *)malloc(sizeof(PopDes)); // allocate population description ...
     mat = (SparseMat *)malloc(sizeof(SparseMat)); // allocate constraint matrix structure ...
@@ -203,38 +208,29 @@ int main(int argc, char **argv) {
     /////////////////////////////////////
     // allocate arrays for the haplotype frequency bounds ....
     pop->hbounds = (HBound *)malloc(pop->haplotypes*sizeof(HBound));
+    hbounds_prescan = (HBound *)malloc(pop->haplotypes*sizeof(HBound));
 
-    for (int which_hap = 0; which_hap < pop->haplotypes; which_hap++){
-        // for each haplotype calculate its bounds ...
-        //
-        //
-        // set the objective function, i.e. which haplotype do you want to find limits for?
-        for (int i = 1; i < pop->haplotypes+1; i++){
-            glp_set_obj_coef(lp, i, 0.0);
-        }
-        glp_set_obj_coef(lp, which_hap+1, 1.0); // haplotype number which_hp+1 !
-        //
-        // uncomment this line if you'd like to see how GLPK formulate optimization problem:
-        // glp_write_mps(lp, GLP_MPS_FILE, NULL, "zzN.mps");
-        //
-        glp_set_obj_dir(lp, GLP_MAX); // maximize
-        glp_simplex(lp, &parm);
-        double upper_bound = glp_get_obj_val(lp);
-        //
-        glp_set_obj_dir(lp, GLP_MIN); //minimize ...
-        glp_simplex(lp, &parm);
-        double lower_bound = glp_get_obj_val(lp);
-        // fill in the lower and upper arrays of the population structure ...
-        pop->hbounds[which_hap].index = which_hap;
-        pop->hbounds[which_hap].lower = lower_bound;
-        pop->hbounds[which_hap].upper = upper_bound;
-    }
+    // run simplex for all of the haplotypes, MIN and MAX ...
+    run_simplex_all_haplos(pop, lp, &parm);
 
 
 // We'd need to determine most interesting haplotypes (haplotypes to scan) ourselves by sorting arrays jointly ...
 // then we'd need to update our linkage info, adding fixed constraint for haplotype under scanning, and perform simplex again and again ...
     // so, after the initial simplex, sort haplotypes by the upper limit and ...
     qsort(pop->hbounds, pop->haplotypes, sizeof(HBound), compare_hbounds);
+
+    // maybe one should be storing pop->hbounds array before proceeding ...
+    memcpy(hbounds_prescan, pop->hbounds, pop->haplotypes*sizeof(HBound));
+
+
+    // next step would be to go through a ~dozen of "top" hbounds and fix corresponding haplotype frequencies, by adding extra linkage ...
+
+
+
+
+
+
+
 
 
 
@@ -866,6 +862,40 @@ void print_haplotypes_and_bounds(PopDes *population, int print_labels, int print
         printf("\n");
     }
 }
+
+
+
+//////////////////////////////////////////////// wrap this into a separate standing function ...
+void run_simplex_all_haplos(PopDes *population, glp_prob *local_lp, glp_smcp *local_parm){
+    for (int which_hap = 0; which_hap < population->haplotypes; which_hap++){
+        // for each haplotype calculate its bounds ...
+        //
+        //
+        // set the objective function, i.e. which haplotype do you want to find limits for?
+        for (int i = 1; i < population->haplotypes+1; i++){
+            glp_set_obj_coef(local_lp, i, 0.0);
+        }
+        glp_set_obj_coef(local_lp, which_hap+1, 1.0); // haplotype number which_hp+1 !
+        //
+        // uncomment this line if you'd like to see how GLPK formulate optimization problem:
+        // glp_write_mps(local_lp, GLP_MPS_FILE, NULL, "zzN.mps");
+        //
+        glp_set_obj_dir(local_lp, GLP_MAX); // maximize
+        glp_simplex(local_lp, local_parm);
+        double upper_bound = glp_get_obj_val(local_lp);
+        //
+        glp_set_obj_dir(local_lp, GLP_MIN); //minimize ...
+        glp_simplex(local_lp, local_parm);
+        double lower_bound = glp_get_obj_val(local_lp);
+        // fill in the lower and upper arrays of the population structure ...
+        population->hbounds[which_hap].index = which_hap;
+        population->hbounds[which_hap].lower = lower_bound;
+        population->hbounds[which_hap].upper = upper_bound;
+    }
+
+}
+
+
 
 
 void print_constraints_matrix(SparseMat *matrix){

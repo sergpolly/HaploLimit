@@ -90,7 +90,7 @@ void free_population(PopDes *population);
 void free_sparse_matrix(SparseMat *matrix);
 
 // print all possible haplotypes using labels(optional) and display haplotype frequency limits(optional)
-void print_haplotypes_and_bounds(PopDes *population, int print_labels, int print_bounds);
+void print_haplotypes_and_bounds(PopDes *population, int print_labels, int print_bounds, int print_lines);
 
 // simplex method for all haplos (both MIN and MAX) wrapped in a single function call 
 void run_simplex_all_haplos(PopDes *population, glp_prob *local_lp, glp_smcp *local_parm);
@@ -111,12 +111,16 @@ int main(int argc, char **argv) {
 
     PopDes *pop;
     SparseMat *mat;
+    SparseMat *mat_scan; // scanning version of the constraint matrix ...
     glp_prob *lp;
     HBound *hbounds_prescan; // we'd need that for scanning version of the program ...
     // initialized later on ...
 
+
     pop = (PopDes *)malloc(sizeof(PopDes)); // allocate population description ...
     mat = (SparseMat *)malloc(sizeof(SparseMat)); // allocate constraint matrix structure ...
+    mat_scan = (SparseMat *)malloc(sizeof(SparseMat)); // allocate constraint matrix structure for scan ...
+
 
     load_allele_frequency_file_safe(pop, argv[1]);
     generate_haplotypes(pop);
@@ -184,7 +188,6 @@ int main(int argc, char **argv) {
     // and the arrays are already generated!
     glp_load_matrix(lp, mat->nonzero, mat->irow, mat->jcol, mat->mval);
 
-
     /////////////////////////////////////////////////////////////////////
     /////////////////////////////////////////////////////////////////////
     // THIS IS THE MAIN WORKING BLOC
@@ -196,6 +199,7 @@ int main(int argc, char **argv) {
         glp_set_row_bnds(lp, i, GLP_FX, pop->freqs[i-1], pop->freqs[i-1]);        
     }
     // normalization ...
+    // all haplotypes sum up to 1.0 ... 
     glp_set_row_bnds(lp, pop->independent_alleles+1, GLP_FX, 1.0, 1.0);
     // linkages ...
     lnk_idx = 0; // zero based indexing for most of the internal arrays ...
@@ -222,20 +226,91 @@ int main(int argc, char **argv) {
     // maybe one should be storing pop->hbounds array before proceeding ...
     memcpy(hbounds_prescan, pop->hbounds, pop->haplotypes*sizeof(HBound));
 
+    printf("HAPLOTYPES & BOUNDS:\n\n");
+    print_haplotypes_and_bounds(pop, 1, 1, 20);
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// AREA IS UNDER CONSTRUCTION ...
 
     // next step would be to go through a ~dozen of "top" hbounds and fix corresponding haplotype frequencies, by adding extra linkage ...
 
+    // beforehand learn how to add a single additional constraint ...
+    // 
+    // something like that:
+    double scan_freq = 0.302;
+    int scan_link_idx = glp_add_rows(lp, 1); // adding just a single extra linkage ...
+    glp_set_row_name(lp, scan_link_idx, "SCAN"); // titled SCAN ...
+    glp_set_row_bnds(lp, scan_link_idx, GLP_FX, scan_freq, scan_freq); // the constraint here is fixed by the scanning freq of that haplotype ...
 
 
+    // // the trickiest part would be to modify the constraint matrix (SparseMat mat) and reload it 
+    // glp_load_matrix(lp, mat->nonzero, mat->irow, mat->jcol, mat->mval);
 
 
+    // Scanning version of the const. mat is goig to have 1 more nonzero elements ...
+    // cause the new constraint is nothing but the haplo frequency fixed at const ...
+    // and variable are indiviadual haplotypes ...
+    mat_scan->nonzero = mat->nonzero + 1; // a particular haplotype is @ fixed frequency ...
+    mat_scan->rows    = mat->rows    + 1; // as we're adding just a single one constraint ...
+    mat_scan->cols    = mat->cols; // haplotypes number (stays the same ...)
+    mat_scan->irow = (int *)malloc((mat_scan->nonzero+1)*sizeof(int));
+    if (mat_scan->irow == NULL) {
+        fprintf(stderr, "unable to allocate memory: %s\n","generate_constraint_matrix_linkage");
+        exit(1);
+    }
+    mat_scan->jcol = (int *)malloc((mat_scan->nonzero+1)*sizeof(int));
+    if (mat_scan->jcol == NULL) {
+        fprintf(stderr, "unable to allocate memory: %s\n","generate_constraint_matrix_linkage");
+        exit(1);
+    }
+    mat_scan->mval = (double *)malloc((mat_scan->nonzero+1)*sizeof(double));
+    if (mat_scan->mval == NULL) {
+        fprintf(stderr, "unable to allocate memory: %s\n","generate_constraint_matrix_linkage");
+        exit(1);
+    }
 
 
+    // memcpy existing parts of the mat to mat_scan ...
+    memcpy(mat_scan->irow, mat->irow, (mat_scan->nonzero)*sizeof(int));
+    memcpy(mat_scan->jcol, mat->jcol, (mat_scan->nonzero)*sizeof(int));
+    memcpy(mat_scan->mval, mat->mval, (mat_scan->nonzero)*sizeof(double));
 
 
+    //  now starting from mat->nonzero mat_scan->i(row,col),mval are not initialized ...
+    // initialize mat_scan with the particular constraint ...
+    // 
+    // initializing very last element ...
+    mat_scan->irow[mat_scan->nonzero] = mat_scan->rows;
+    mat_scan->jcol[mat_scan->nonzero] = 1; // index of haplotype to fix ...
+    mat_scan->mval[mat_scan->nonzero] = 1.0;
+    // figure out how do we identify alleles/loci involved given the haplotype number,
+    // that would give us a path towards finishing the mat_scan matrix and loading updated problem set up ...
+
+    // the trickiest part would be to modify the constraint matrix (SparseMat mat) and reload it 
+    glp_load_matrix(lp, mat_scan->nonzero, mat_scan->irow, mat_scan->jcol, mat_scan->mval);
+
+// CONSTRUCTION AREA OVER ...
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+    // run simplex for all of the haplotypes, MIN and MAX ...
+    run_simplex_all_haplos(pop, lp, &parm);
+
+// We'd need to determine most interesting haplotypes (haplotypes to scan) ourselves by sorting arrays jointly ...
+// then we'd need to update our linkage info, adding fixed constraint for haplotype under scanning, and perform simplex again and again ...
+    // so, after the initial simplex, sort haplotypes by the upper limit and ...
+    qsort(pop->hbounds, pop->haplotypes, sizeof(HBound), compare_hbounds);
 
     printf("HAPLOTYPES & BOUNDS:\n\n");
-    print_haplotypes_and_bounds(pop, 1, 1);
+    print_haplotypes_and_bounds(pop, 1, 1, 20);
 
 
     glp_delete_prob(lp);
@@ -247,6 +322,11 @@ int main(int argc, char **argv) {
     // deallocate sparse matrix description of the constraint matrix ...
     free_sparse_matrix(mat);
     free(mat);
+
+    // deallocate sparse matrix description of the constraint matrix ...
+    free_sparse_matrix(mat_scan);
+    free(mat_scan);
+
 
     // success ...
     return 0;
@@ -835,9 +915,10 @@ void free_sparse_matrix(SparseMat *matrix){
 }
 
 
-void print_haplotypes_and_bounds(PopDes *population, int print_labels, int print_bounds){
+void print_haplotypes_and_bounds(PopDes *population, int print_labels, int print_bounds, int print_lines){
     // print every haplotype ...
-    for (int h = 0; h < population->haplotypes; h++){
+    for (int h = 0; h < print_lines; h++){
+    // for (int h = 0; h < population->haplotypes; h++){
         if (print_bounds) {
             printf("H%04d: %05d %.4lf %.4lf ",h+1,population->hbounds[h].index,population->hbounds[h].lower,population->hbounds[h].upper);
         } else {

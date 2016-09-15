@@ -111,7 +111,7 @@ int main(int argc, char **argv) {
 
     PopDes *pop;
     SparseMat *mat;
-    // SparseMat *mat_scan; // scanning version of the constraint matrix ...
+    SparseMat *mat_scan; // scanning version of the constraint matrix ...
     glp_prob *lp;
     HBound *hbounds_prescan; // we'd need that for scanning version of the program ...
     // initialized later on ...
@@ -119,7 +119,7 @@ int main(int argc, char **argv) {
 
     pop = (PopDes *)malloc(sizeof(PopDes)); // allocate population description ...
     mat = (SparseMat *)malloc(sizeof(SparseMat)); // allocate constraint matrix structure ...
-    // mat_scan = (SparseMat *)malloc(sizeof(SparseMat)); // allocate constraint matrix structure for scan ...
+    mat_scan = (SparseMat *)malloc(sizeof(SparseMat)); // allocate constraint matrix structure for scan ...
 
 
     load_allele_frequency_file_safe(pop, argv[1]);
@@ -245,41 +245,41 @@ int main(int argc, char **argv) {
     // 
     // DO THE OPERATION THAT HAS TO BE DONE JUST ONCE:
 
-    // // (1)
-    // // beforehand learn how to add a single additional constraint ...
-    // // something like that:
-    // int scan_link_idx = glp_add_rows(lp, 1); // adding just a single extra linkage ...
-    // glp_set_row_name(lp, scan_link_idx, "SCAN"); // titled SCAN ...
+    // (1)
+    // beforehand learn how to add a single additional constraint ...
+    // something like that:
+    int scan_link_idx = glp_add_rows(lp, 1); // adding just a single extra linkage ...
+    glp_set_row_name(lp, scan_link_idx, "SCAN"); // titled SCAN ...
 
 
-    // // (2)
-    // // Scanning version of the const. mat is goig to have 1 more nonzero elements ...
-    // // cause the new constraint is nothing but the haplo frequency fixed at const ...
-    // // and variable are indiviadual haplotypes ...
-    // mat_scan->nonzero = mat->nonzero + 1; // a particular haplotype is @ fixed frequency ...
-    // mat_scan->rows    = mat->rows    + 1; // as we're adding just a single one constraint ...
-    // mat_scan->cols    = mat->cols; // haplotypes number (stays the same ...)
-    // mat_scan->irow = (int *)malloc((mat_scan->nonzero+1)*sizeof(int));
-    // if (mat_scan->irow == NULL) {
-    //     fprintf(stderr, "unable to allocate memory: %s\n","generate_constraint_matrix_linkage");
-    //     exit(1);
-    // }
-    // mat_scan->jcol = (int *)malloc((mat_scan->nonzero+1)*sizeof(int));
-    // if (mat_scan->jcol == NULL) {
-    //     fprintf(stderr, "unable to allocate memory: %s\n","generate_constraint_matrix_linkage");
-    //     exit(1);
-    // }
-    // mat_scan->mval = (double *)malloc((mat_scan->nonzero+1)*sizeof(double));
-    // if (mat_scan->mval == NULL) {
-    //     fprintf(stderr, "unable to allocate memory: %s\n","generate_constraint_matrix_linkage");
-    //     exit(1);
-    // }
+    // (2)
+    // Scanning version of the const. mat is goig to have 1 more nonzero elements ...
+    // cause the new constraint is nothing but the haplo frequency fixed at const ...
+    // and variable are indiviadual haplotypes ...
+    mat_scan->nonzero = mat->nonzero + 1; // a particular haplotype is @ fixed frequency ...
+    mat_scan->rows    = mat->rows    + 1; // as we're adding just a single one constraint ...
+    mat_scan->cols    = mat->cols; // haplotypes number (stays the same ...)
+    mat_scan->irow = (int *)malloc((mat_scan->nonzero+1)*sizeof(int));
+    if (mat_scan->irow == NULL) {
+        fprintf(stderr, "unable to allocate memory: %s\n","generate_constraint_matrix_linkage");
+        exit(1);
+    }
+    mat_scan->jcol = (int *)malloc((mat_scan->nonzero+1)*sizeof(int));
+    if (mat_scan->jcol == NULL) {
+        fprintf(stderr, "unable to allocate memory: %s\n","generate_constraint_matrix_linkage");
+        exit(1);
+    }
+    mat_scan->mval = (double *)malloc((mat_scan->nonzero+1)*sizeof(double));
+    if (mat_scan->mval == NULL) {
+        fprintf(stderr, "unable to allocate memory: %s\n","generate_constraint_matrix_linkage");
+        exit(1);
+    }
 
 
-    // // memcpy existing parts of the mat to mat_scan ...
-    // memcpy(mat_scan->irow, mat->irow, (mat_scan->nonzero)*sizeof(int));
-    // memcpy(mat_scan->jcol, mat->jcol, (mat_scan->nonzero)*sizeof(int));
-    // memcpy(mat_scan->mval, mat->mval, (mat_scan->nonzero)*sizeof(double));
+    // memcpy existing parts of the mat to mat_scan ...
+    memcpy(mat_scan->irow, mat->irow, (mat_scan->nonzero)*sizeof(int));
+    memcpy(mat_scan->jcol, mat->jcol, (mat_scan->nonzero)*sizeof(int));
+    memcpy(mat_scan->mval, mat->mval, (mat_scan->nonzero)*sizeof(double));
 
 
     // next step would be to go through a ~dozen of "top" hbounds and fix corresponding haplotype frequencies, by adding extra linkage ...
@@ -313,28 +313,23 @@ int main(int argc, char **argv) {
 
             // (1) UPDATING CONSTRAINT FIXATION FREQUENCY ...
             // the constraint here is fixed by the scanning freq of that haplotype ...
+            glp_set_row_bnds(lp, scan_link_idx, GLP_FX, freq_scan, freq_scan);
+
+            // (2) UPDATING SINGLE ELEMENT OF THE SPARSE MATRIX ACCORDING WITH THE HAPLO-CONSTRAINT ...
+            // now starting from mat->nonzero mat_scan->i(row,col),mval are not initialized ...
+            // initialize mat_scan with the particular constraint ...
             // 
-            // ACHTUNG: maybe simply fixing the auxilary variable might work better ?????
-            // 
-            glp_set_col_bnds(lp, haplo_idx, GLP_FX, freq_scan, freq_scan);
-            // glp_set_row_bnds(lp, scan_link_idx, GLP_FX, freq_scan, freq_scan);
+            // initializing very last element ...
+            mat_scan->irow[mat_scan->nonzero] = mat_scan->rows;
+            mat_scan->jcol[mat_scan->nonzero] = haplo_idx; // index of haplotype to fix ...
+            mat_scan->mval[mat_scan->nonzero] = 1.0;
+            // figure out how do we identify alleles/loci involved given the haplotype number,
+            // that would give us a path towards finishing the mat_scan matrix and loading updated problem set up ...
 
 
-            // // (2) UPDATING SINGLE ELEMENT OF THE SPARSE MATRIX ACCORDING WITH THE HAPLO-CONSTRAINT ...
-            // // now starting from mat->nonzero mat_scan->i(row,col),mval are not initialized ...
-            // // initialize mat_scan with the particular constraint ...
-            // // 
-            // // initializing very last element ...
-            // mat_scan->irow[mat_scan->nonzero] = mat_scan->rows;
-            // mat_scan->jcol[mat_scan->nonzero] = haplo_idx; // index of haplotype to fix ...
-            // mat_scan->mval[mat_scan->nonzero] = 1.0;
-            // // figure out how do we identify alleles/loci involved given the haplotype number,
-            // // that would give us a path towards finishing the mat_scan matrix and loading updated problem set up ...
-
-
-            // // (3) RELOADING CONSTRAINT MATRIX ...
-            // // the trickiest part would be to modify the constraint matrix (SparseMat mat) and reload it 
-            // glp_load_matrix(lp, mat_scan->nonzero, mat_scan->irow, mat_scan->jcol, mat_scan->mval);
+            // (3) RELOADING CONSTRAINT MATRIX ...
+            // the trickiest part would be to modify the constraint matrix (SparseMat mat) and reload it 
+            glp_load_matrix(lp, mat_scan->nonzero, mat_scan->irow, mat_scan->jcol, mat_scan->mval);
 
 
             // (4) RUN SIMPLEX FOR THE MODIFIED (EXTENDED) PROBLEM ...
@@ -344,8 +339,8 @@ int main(int argc, char **argv) {
             // so, after the initial simplex, sort haplotypes by the upper limit and ...
             qsort(pop->hbounds, pop->haplotypes, sizeof(HBound), compare_hbounds);
 
-            printf("HAPLOTYPES & BOUNDS:\n\n");
-            print_haplotypes_and_bounds(pop, 1, 1, 20);
+            // printf("HAPLOTYPES & BOUNDS:\n\n");
+            // print_haplotypes_and_bounds(pop, 1, 1, 20);
 
 
             // decrement frequency range until all the region is covered ...
@@ -353,18 +348,12 @@ int main(int argc, char **argv) {
             freq_scan += freq_step;
         }
 
-        // WE MUST RELEASE THAT FIXED HAPLOTYPE ...
-        glp_set_col_bnds(lp, haplo_idx, GLP_DB, 0.0, 1.0);
-        // NOW WE CAN MOVE ON TO SCANNING NEXT HAPLOTYPE ...
        
     }
 
 // 0.2720 to 0.3810, using 0.0100
 
-// //////////////////////////////
-// PROBLEM SEEMS TO BE GONE NOW,
-// SIMPLIFIED SOLUTION WORKS BETTER!!!!!!!!!!!!!!
-/////////////////////////////////
+
 
 // try that to resolve the failure at haplo 582(3) ...
 //      . .
@@ -396,9 +385,9 @@ int main(int argc, char **argv) {
     free_sparse_matrix(mat);
     free(mat);
 
-    // // deallocate sparse matrix description of the constraint matrix ...
-    // free_sparse_matrix(mat_scan);
-    // free(mat_scan);
+    // deallocate sparse matrix description of the constraint matrix ...
+    free_sparse_matrix(mat_scan);
+    free(mat_scan);
 
 
     // success ...

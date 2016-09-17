@@ -252,6 +252,16 @@ int main(int argc, char **argv) {
 
     // No additional constraints are needed, just apply boundary settings for the auxiliary variable corresponding to the haplotype of interest
 
+    // FINAL OUTPUTTING
+    FILE *fp;
+    fp = fopen("violin.dat","w");
+    if (fp == NULL) {
+        fprintf(stderr,"Cannot open violin.dat for writing ...");
+        exit(1);
+    }
+    fprintf(fp,"haplo_idx haplo fmin fmax scan_idx fscan ratio_prod\n");
+
+
 
     // next step would be to go through a ~dozen of "top" hbounds and fix corresponding haplotype frequencies, by adding extra linkage ...
     for (int i = 0; i < num_haplo_scan; i++)
@@ -275,8 +285,6 @@ int main(int argc, char **argv) {
         // print some info ...
         printf("\nPreparing to scan for haplo %d in a range from %.4lf to %.4lf, using %.4lf step ...\n", haplo_idx, freq_min, freq_max, freq_step);
         printf("haplotype %d description: %s\n", haplo_idx, haplo_descr);
-        // free it right away ...
-        free(haplo_descr);
 
 
         // the frequency we would use for fixation ...
@@ -305,6 +313,8 @@ int main(int argc, char **argv) {
             // // print current freq_scan ...
             // printf("Currently haplotype %d is fixed at %.4lf frequency\n", haplo_idx, freq_scan);
             printf("%d %.4lf %.4lf\n",dummy_counter,freq_scan,ratio_prod);
+            fprintf(fp,"%d %s %.4lf %.4lf %d %.4lf %.4lf\n", haplo_idx, haplo_descr, freq_min, freq_max, dummy_counter, freq_scan, ratio_prod);
+
 
             // NOTE: in the master-script, those `ratio_products` were used as violin-plot widths ('Y'-coord)
             // along with the corresponding `freq_scan` as an 'X'-coord
@@ -332,9 +342,14 @@ int main(int argc, char **argv) {
         glp_set_col_bnds(lp, haplo_idx, GLP_DB, 0.0, 1.0);
         // NOW WE CAN MOVE ON TO SCANNING NEXT HAPLOTYPE ...
         printf("\n");
+        // free it right away ...
+        free(haplo_descr);
+
 
        
     }
+
+    fclose(fp);
 
 
     glp_delete_prob(lp);
